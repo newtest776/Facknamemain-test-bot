@@ -1,0 +1,4 @@
+python-telegram-bot
+Faker
+nest_asyncio
+httpx
