@@ -24,7 +24,7 @@ SPONSOR_CHANNEL = "@YourSponsorChannel"
 
 # --- মূল কনফিগারেশন ---
 # টোকেনটি এখন সরাসরি কোডে নেই, এটি পরিবেশ (environment) থেকে নেওয়া হবে
-TOKEN = os.getenv("8279684073:AAGmn0mix1AFJq9_KtTwCG21-GZBpsOo5LY")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
 
