@@ -1,9 +1,10 @@
 import logging
 import asyncio
 import nest_asyncio
-import os # <-- নতুন করে যোগ করা হয়েছে
+import os
+from aiohttp import web  # <<< পরিবর্তন: aiohttp ইম্পোর্ট করা হয়েছে
 
-# Pydroid3-এর জন্য nest_asyncio প্রয়োগ করা হয়েছে
+# Pydroid3 বা অন্যান্য পরিবেশের জন্য nest_asyncio প্রয়োগ করা হয়েছে
 # সার্ভারে এটি প্রয়োজন নাও হতে পারে, কিন্তু থাকলে সমস্যা নেই
 nest_asyncio.apply()
 
@@ -23,17 +24,20 @@ USE_FORCE_JOIN = False # আপাতত এটি নিষ্ক্রিয় �
 SPONSOR_CHANNEL = "@YourSponsorChannel"
 
 # --- মূল কনফিগারেশন ---
-# টোকেনটি এখন সরাসরি কোডে নেই, এটি পরিবেশ (environment) থেকে নেওয়া হবে
+# টোকেন ও অন্যান্য তথ্য পরিবেশ (environment) থেকে নেওয়া হবে
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
 
 # Render স্বয়ংক্রিয়ভাবে PORT সেট করে দেয়
 PORT = int(os.getenv("PORT", 8443))
-# আপনার Render অ্যাপ্লিকেশনের URL এখানে সেট করতে হবে
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+if not WEBHOOK_URL:
+    raise ValueError("No WEBHOOK_URL found in environment variables")
+
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+
 
 # --- ConversationHandler স্টেটসমূহ ---
 (SELECTING_ACTION, SELECTING_COUNTRY, SELECTING_GENDER) = range(3)
@@ -204,10 +208,21 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "main_help": return await help_command(update, context)
 
 # --- মূল অ্যাপ্লিকেশন সেটআপ ---
-def main() -> None:
-    application = Application.builder().token(TOKEN).build()
+async def main() -> None:
+    # <<< পরিবর্তন: Render/Uptime Robot এর জন্য হেলথ চেক এন্ডপয়েন্ট
+    async def health_check(request: web.Request) -> web.Response:
+        """Render এর স্লিপিং মোড এড়ানো এবং Uptime Robot এর জন্য একটি সাধারণ হেলথ চেক এন্ডপয়েন্ট।"""
+        return web.Response(text="Bot is alive!")
+
+    # <<< পরিবর্তন: অ্যাপ্লিকেশন শুরু হওয়ার পরে আমাদের রুট যোগ করার জন্য একটি হুক
+    async def post_init_hook(application: Application):
+        # python-telegram-bot এর অন্তর্নিহিত ওয়েব অ্যাপে একটি GET রুট যোগ করা হচ্ছে
+        application.bot_data["_aiohttp_web_app"].router.add_get("/", health_check)
+
+    # <<< পরিবর্তন: Application Builder এ post_init হুক যোগ করা হয়েছে
+    application = Application.builder().token(TOKEN).post_init(post_init_hook).build()
     
-    # কথোপকথন হ্যান্ডলার
+    # কথোপকথন হ্যান্ডলার (কোনো পরিবর্তন নেই)
     main_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(main_menu_handler, pattern="^main_generate$"), CommandHandler("generate", generate_start)],
         states={
@@ -226,6 +241,7 @@ def main() -> None:
         fallbacks=[CommandHandler("settings", settings_start)], per_message=False
     )
     
+    # হ্যান্ডলার যোগ করা (কোনো পরিবর্তন নেই)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
@@ -234,15 +250,18 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(pagination_handler, pattern="^paginate:"))
     application.add_handler(CallbackQueryHandler(main_menu_handler, pattern="^main_"))
 
-    # Webhook সেটআপ এবং অ্যাপ্লিকেশন চালানো
-    # এটি polling-এর পরিবর্তে ব্যবহৃত হবে
+    # Webhook সেটআপ এবং অ্যাপ্লিকেশন চালানো (কোনো পরিবর্তন নেই)
     logging.info(f"Starting webhook on port {PORT}")
-    application.run_webhook(
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}", allowed_updates=Update.ALL_TYPES)
+    
+    # <<< পরিবর্তন: application.run_webhook এখন একটি awaitable, তাই এটিকে এভাবে কল করতে হবে
+    await application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN, # Webhook path-কে টোকেন দিয়ে সুরক্ষিত করা
         webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
     )
-    
+
+# <<< পরিবর্তন: main() এখন একটি async ফাংশন, তাই এটিকে asyncio দিয়ে চালাতে হবে
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
