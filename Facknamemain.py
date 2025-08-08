@@ -2,13 +2,10 @@ import logging
 import asyncio
 import nest_asyncio
 import os
-from aiohttp import web  # <<< পরিবর্তন: aiohttp ইম্পোর্ট করা হয়েছে
+from aiohttp import web  # aiohttp ইম্পোর্ট করা হয়েছে
+from faker import Faker
 
-# Pydroid3 বা অন্যান্য পরিবেশের জন্য nest_asyncio প্রয়োগ করা হয়েছে
-# সার্ভারে এটি প্রয়োজন নাও হতে পারে, কিন্তু থাকলে সমস্যা নেই
-nest_asyncio.apply()
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,36 +13,30 @@ from telegram.ext import (
     ConversationHandler,
     ContextTypes,
 )
-from faker import Faker
 
-# --- বিজ্ঞাপন ও ফিচার কনফিগারেশন ---
-USE_FOOTER_AD = True
-USE_FORCE_JOIN = False # আপাতত এটি নিষ্ক্রিয় রাখা হলো
-SPONSOR_CHANNEL = "@YourSponsorChannel"
+# Pydroid3 বা অন্যান্য পরিবেশের জন্য nest_asyncio প্রয়োগ
+nest_asyncio.apply()
+
+# --- লগিং কনফিগারেশন ---
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING) # httpx এর অতিরিক্ত লগ বন্ধ করা
 
 # --- মূল কনফিগারেশন ---
-# টোকেন ও অন্যান্য তথ্য পরিবেশ (environment) থেকে নেওয়া হবে
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
 
-# Render স্বয়ংক্রিয়ভাবে PORT সেট করে দেয়
 PORT = int(os.getenv("PORT", 8443))
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 if not WEBHOOK_URL:
     raise ValueError("No WEBHOOK_URL found in environment variables")
 
-
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-
-
-# --- ConversationHandler স্টেটসমূহ ---
+# --- ConversationHandler ও অন্যান্য কনস্ট্যান্ট ---
 (SELECTING_ACTION, SELECTING_COUNTRY, SELECTING_GENDER) = range(3)
-
-# --- সমর্থিত দেশসমূহ ---
 SUPPORTED_LOCALES = { "🇺🇸 USA": "en_US", "🇬🇧 UK": "en_GB", "🇮🇳 India": "en_IN", "🇩🇪 Germany": "de_DE", "🇧🇩 Bangladesh": "bn_BD" }
+USE_FOOTER_AD = True
 
-# --- Helper Functions ---
+# --- Helper Functions (generate_profile_text, create_pagination_keyboard) ---
 def generate_profile_text(locale_code="en_US", gender="random"):
     custom_faker = Faker(locale_code)
     name = (custom_faker.name_male() if gender == "male" else
@@ -72,7 +63,8 @@ def create_pagination_keyboard(current_index, total_profiles):
         row.append(InlineKeyboardButton("Next ▶️", callback_data=f"paginate:next:{current_index}"))
     return InlineKeyboardMarkup([row])
 
-# --- মূল কমান্ড হ্যান্ডলার ---
+# --- কমান্ড ও Callback হ্যান্ডলার (start, help, stats, conversations, etc.) ---
+# (আপনার আগের কোডের এই অংশগুলো অপরিবর্তিত থাকবে)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     welcome_text = (f"👋 **Hi {user.first_name}!**\n\nWelcome to the **Advanced Fake Profile Generator**.\n"
@@ -103,7 +95,6 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = context.user_data.get('generation_count', 0)
     await update.message.reply_text(f"📊 You have generated a total of **{count}** profiles!", parse_mode="Markdown")
 
-# --- প্রোফাইল তৈরির সম্পূর্ণ প্রবাহ ---
 async def generate_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     amount = 1
     if context.args and context.args[0].isdigit():
@@ -152,7 +143,6 @@ async def select_gender_and_generate(update: Update, context: ContextTypes.DEFAU
         await editable_message.edit_text(text=f"**Profile 1 of {amount}**\n\n{profiles[0]}", reply_markup=keyboard, parse_mode="Markdown")
     return ConversationHandler.END
 
-# --- পেজিনেশন হ্যান্ডলার ---
 async def pagination_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     action, direction, current_index_str = query.data.split(':'); current_index = int(current_index_str)
@@ -163,7 +153,6 @@ async def pagination_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total_profiles = len(profiles); keyboard = create_pagination_keyboard(new_index, total_profiles)
     await query.edit_message_text(text=f"**Profile {new_index + 1} of {total_profiles}**\n\n{profiles[new_index]}", reply_markup=keyboard, parse_mode="Markdown")
 
-# --- Settings Conversation ---
 async def settings_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     default_locale = context.user_data.get("locale_name", "Not Set")
     default_gender = context.user_data.get("gender", "Not Set")
@@ -198,7 +187,6 @@ async def settings_save_gender(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text(f"Default gender set to: {query.data}\nRedirecting...")
     await asyncio.sleep(1); return await settings_start(update, context)
 
-# --- স্টার্ট মেনু এবং অন্যান্য Callback হ্যান্ডলার ---
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query; await query.answer()
     data = query.data
@@ -207,22 +195,12 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "main_settings": return await settings_start(update, context)
     if data == "main_help": return await help_command(update, context)
 
-# --- মূল অ্যাপ্লিকেশন সেটআপ ---
+# --- নতুন main() ফাংশন এবং ওয়েব সার্ভার সেটআপ ---
 async def main() -> None:
-    # <<< পরিবর্তন: Render/Uptime Robot এর জন্য হেলথ চেক এন্ডপয়েন্ট
-    async def health_check(request: web.Request) -> web.Response:
-        """Render এর স্লিপিং মোড এড়ানো এবং Uptime Robot এর জন্য একটি সাধারণ হেলথ চেক এন্ডপয়েন্ট।"""
-        return web.Response(text="Bot is alive!")
+    # PTB অ্যাপ্লিকেশন তৈরি করা
+    application = Application.builder().token(TOKEN).build()
 
-    # <<< পরিবর্তন: অ্যাপ্লিকেশন শুরু হওয়ার পরে আমাদের রুট যোগ করার জন্য একটি হুক
-    async def post_init_hook(application: Application):
-        # python-telegram-bot এর অন্তর্নিহিত ওয়েব অ্যাপে একটি GET রুট যোগ করা হচ্ছে
-        application.bot_data["_aiohttp_web_app"].router.add_get("/", health_check)
-
-    # <<< পরিবর্তন: Application Builder এ post_init হুক যোগ করা হয়েছে
-    application = Application.builder().token(TOKEN).post_init(post_init_hook).build()
-    
-    # কথোপকথন হ্যান্ডলার (কোনো পরিবর্তন নেই)
+    # কথোপকথন ও অন্যান্য হ্যান্ডলার যোগ করা
     main_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(main_menu_handler, pattern="^main_generate$"), CommandHandler("generate", generate_start)],
         states={
@@ -240,8 +218,6 @@ async def main() -> None:
         },
         fallbacks=[CommandHandler("settings", settings_start)], per_message=False
     )
-    
-    # হ্যান্ডলার যোগ করা (কোনো পরিবর্তন নেই)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
@@ -250,18 +226,39 @@ async def main() -> None:
     application.add_handler(CallbackQueryHandler(pagination_handler, pattern="^paginate:"))
     application.add_handler(CallbackQueryHandler(main_menu_handler, pattern="^main_"))
 
-    # Webhook সেটআপ এবং অ্যাপ্লিকেশন চালানো (কোনো পরিবর্তন নেই)
-    logging.info(f"Starting webhook on port {PORT}")
-    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}", allowed_updates=Update.ALL_TYPES)
-    
-    # <<< পরিবর্তন: application.run_webhook এখন একটি awaitable, তাই এটিকে এভাবে কল করতে হবে
-    await application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN, # Webhook path-কে টোকেন দিয়ে সুরক্ষিত করা
-        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
-    )
+    # PTB এর অভ্যন্তরীণ কাজগুলো শুরু করার জন্য এটি জরুরি
+    await application.initialize()
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
 
-# <<< পরিবর্তন: main() এখন একটি async ফাংশন, তাই এটিকে asyncio দিয়ে চালাতে হবে
+    # --- aiohttp ওয়েব সার্ভার তৈরি করা ---
+    # Uptime Robot এর জন্য হেলথ চেক রুট
+    async def health(_: web.Request) -> web.Response:
+        return web.Response(text="I am alive!")
+
+    # Telegram থেকে আসা অনুরোধ হ্যান্ডেল করার রুট
+    async def telegram(request: web.Request) -> web.Response:
+        await application.update_queue.put(Update.de_json(await request.json(), application.bot))
+        return web.Response()
+
+    # aiohttp অ্যাপ তৈরি করা এবং রুটগুলো যোগ করা
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_post(f"/{TOKEN}", telegram)
+
+    # ওয়েব সার্ভার রান করা
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=PORT)
+    await site.start()
+
+    logging.info(f"Web server started on port {PORT}")
+
+    # PTB অ্যাপ্লিকেশনটি চালু রাখা
+    await application.start()
+    
+    # সার্ভারটি অনির্দিষ্টকালের জন্য চলতে থাকবে
+    while True:
+        await asyncio.sleep(3600)
+
 if __name__ == "__main__":
     asyncio.run(main())
