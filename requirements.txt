@@ -2,3 +2,4 @@ python-telegram-bot[webhooks]
 Faker
 nest_asyncio
 httpx
+aiohttp
